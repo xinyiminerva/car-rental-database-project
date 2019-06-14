@@ -1,0 +1,131 @@
+CREATE OR REPLACE PROCEDURE REGISTER(V_NAME IN VARCHAR,
+                                     V_EMAIL IN VARCHAR,
+                                     V_PASSWORD IN VARCHAR,
+                                     V_TYPE IN VARCHAR,
+                                     V_GALAXY IN VARCHAR,
+                                     V_PLANET IN VARCHAR,
+                                     V_COUNTRY IN VARCHAR,
+                                     V_STATE IN VARCHAR,
+                                     V_CITY IN VARCHAR,
+                                     V_STREET IN VARCHAR,
+                                     V_PAYMENT_TYPE IN VARCHAR,
+                                     V_CARD_NUM IN NUMBER,
+                                     V_CVV IN NUMBER,
+                                     V_USER_ID OUT NUMBER) IS
+  v_pid NUMBER;
+  v_aid NUMBER;
+BEGIN
+  INSERT INTO PAYMENT (PAYMENT_TYPE, CARD_NUM, CVV)
+  VALUES (V_PAYMENT_TYPE, V_CARD_NUM, V_CVV)
+         RETURNING PAYMENT_ID INTO v_pid;
+  INSERT INTO ADDRESS (GALAXY, PLANET, COUNTRY, STATE, CITY, STREET)
+  VALUES (V_GALAXY, V_PLANET, V_COUNTRY, V_STATE, V_CITY, V_STREET)
+         RETURNING ADDRESS_ID INTO v_aid;
+  INSERT INTO "USER" ("NAME", EMAIL, PASSWORD, "TYPE", USER_ADDRESS_ID, USER_PAYMENT_ID)
+  VALUES (V_NAME, V_EMAIL, V_PASSWORD, V_TYPE, v_aid, v_pid)
+         RETURNING USER_ID INTO V_USER_ID;
+END;
+
+
+
+CREATE OR REPLACE PROCEDURE PURCHASE_NEW(V_CUSTOMER_NAME IN VARCHAR,
+                                         V_SKU_ID IN VARCHAR,
+                                         V_PICKUP_LOCATION IN VARCHAR) IS
+  v_customer_id NUMBER;
+  v_vehicle_id NUMBER;
+  v_model_price DECIMAL;
+  v_sell_price DECIMAL;
+  v_resell_price DECIMAL;
+BEGIN
+  SELECT USER_ID INTO v_customer_id FROM "USER" WHERE "NAME" = V_CUSTOMER_NAME FETCH FIRST 1 ROWS ONLY;
+  SELECT PRICE INTO v_sell_price FROM SKU WHERE SKU_ID = V_SKU_ID FETCH FIRST 1 ROWS ONLY;
+  INSERT INTO VEHICLE (SKU_ID, STATUS, USED)
+  VALUES (V_SKU_ID, 'WAIT_PICKUP', 1)
+         RETURNING VEHICLE_ID INTO v_vehicle_id;
+  INSERT INTO SALE (BUYER_ID, VEHICLE_ID, DISCOUNT, FACT_PRICE, STATUS, SALE_DATE, PICKUP_LOCATION_ID, PICKUP_DATE)
+  VALUES (v_customer_id, v_vehicle_id, 100, v_sell_price, 'WAIT_PICKUP', SYSDATE, V_PICKUP_LOCATION, SYSDATE);
+END;
+
+
+CREATE OR REPLACE PROCEDURE PURCHASE_USED(V_CUSTOMER_NAME IN VARCHAR,
+                                          V_VEHICLE_ID IN NUMBER) IS
+  v_customer_id NUMBER;
+  v_resell_price DECIMAL;
+  v_service_location NUMBER;
+BEGIN
+  SELECT USER_ID INTO v_customer_id FROM "USER" WHERE "NAME" = V_CUSTOMER_NAME;
+  SELECT LOCATION_ID INTO v_service_location
+  FROM VEHICLE_STOCK
+  WHERE VEHICLE_ID = V_VEHICLE_ID
+    FETCH FIRST 1 ROWS ONLY;
+  SELECT RESELL_PRICE INTO v_resell_price
+  FROM VEHICLE
+         JOIN SKU S on VEHICLE.SKU_ID = S.SKU_ID
+  WHERE VEHICLE_ID = V_VEHICLE_ID
+    FETCH FIRST 1 ROWS ONLY;
+  UPDATE VEHICLE SET STATUS = 'SOLD' WHERE VEHICLE_ID = V_VEHICLE_ID;
+  DELETE FROM VEHICLE_STOCK WHERE VEHICLE_ID = V_VEHICLE_ID;
+  INSERT INTO SALE (BUYER_ID, VEHICLE_ID, DISCOUNT, FACT_PRICE, STATUS, SALE_DATE, PICKUP_LOCATION_ID, PICKUP_DATE)
+  VALUES (v_customer_id, v_vehicle_id, 100, v_resell_price, 'PICKUPED', SYSDATE, v_service_location, SYSDATE);
+END;
+
+CREATE OR REPLACE PROCEDURE SHOWROOM_NEW(V_SKU_ID IN VARCHAR,
+                                         V_LOCATION IN VARCHAR) IS
+  v_vehicle_id NUMBER;
+  v_model_price DECIMAL;
+  v_sku_price DECIMAL;
+  v_sell_price DECIMAL;
+  v_resell_price DECIMAL;
+BEGIN
+  SELECT PRICE INTO v_sku_price FROM SKU WHERE "SKU_ID" = V_SKU_ID FETCH FIRST 1 ROWS ONLY;
+  INSERT INTO VEHICLE (SKU_ID, STATUS, USED)
+  VALUES (V_SKU_ID, 'SHOW', 1)
+         RETURNING VEHICLE_ID INTO v_vehicle_id;
+  INSERT INTO VEHICLE_SHOWS (VEHICLE_ID, LOCATION_ID) VALUES (v_vehicle_id, V_LOCATION);
+END;
+
+CREATE OR REPLACE PROCEDURE NEW_REPAIR(V_VEHICLE_ID IN VARCHAR,
+                                       V_SERVICE_LOCATION IN VARCHAR) IS
+  v_repair_price DECIMAL;
+BEGIN
+  SELECT REPAIR_PRICE INTO v_repair_price
+  FROM VEHICLE
+         JOIN SKU S on VEHICLE.SKU_ID = S.SKU_ID
+  WHERE VEHICLE_ID = V_VEHICLE_ID
+    FETCH FIRST 1 ROWS ONLY;
+  INSERT INTO REPAIR (VEHICLE_ID, SERVICE_LOCATION_ID, REPAIR_DATE, TOTAL_COST)
+  VALUES (V_VEHICLE_ID, V_SERVICE_LOCATION, SYSDATE, v_repair_price);
+END;
+
+
+CREATE OR REPLACE PROCEDURE RESELL(
+  V_VEHICLE_ID IN NUMBER
+) IS
+  v_location_id NUMBER;
+BEGIN
+  SELECT LOCATION_ID INTO v_location_id FROM VEHICLE_SHOWS WHERE VEHICLE_ID = V_VEHICLE_ID;
+  DELETE FROM VEHICLE_SHOWS WHERE VEHICLE_ID = V_VEHICLE_ID;
+  INSERT INTO VEHICLE_STOCK (VEHICLE_ID, LOCATION_ID) VALUES (V_VEHICLE_ID, v_location_id);
+  UPDATE VEHICLE SET STATUS = 'SELLING' WHERE VEHICLE_ID = V_VEHICLE_ID;
+END;
+
+CREATE OR REPLACE PROCEDURE NEW_SERVICE_LOCATION(V_MANAGER_ID IN NUMBER,
+                                                 V_NAME IN VARCHAR,
+                                                 V_GALAXY IN VARCHAR,
+                                                 V_PLANET IN VARCHAR,
+                                                 V_COUNTRY IN VARCHAR,
+                                                 V_STATE IN VARCHAR,
+                                                 V_CITY IN VARCHAR,
+                                                 V_STREET IN VARCHAR,
+                                                 V_SERVICE_ID OUT NUMBER) IS
+  v_pid NUMBER;
+  v_aid NUMBER;
+BEGIN
+  INSERT INTO ADDRESS (GALAXY, PLANET, COUNTRY, STATE, CITY, STREET)
+  VALUES (V_GALAXY, V_PLANET, V_COUNTRY, V_STATE, V_CITY, V_STREET)
+         RETURNING ADDRESS_ID INTO v_aid;
+  INSERT INTO "SERVICE_LOCATION" ("NAME", SERVICE_ADDRESS_ID, MANAGER_USER_ID)
+  VALUES (V_NAME, v_aid, V_MANAGER_ID)
+         RETURNING SERVICE_LOCATION_ID
+           INTO V_SERVICE_ID;
+END;
